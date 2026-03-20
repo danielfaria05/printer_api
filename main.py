@@ -15,12 +15,14 @@ import win32print
 import win32ui
 import win32con
 import win32api
+import socket
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, Header, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, field_validator
 import uvicorn
 from dotenv import load_dotenv
+from fastapi.middleware.cors import CORSMiddleware
 
 # --- CONFIGURAÇÃO E LOGGING ---
 load_dotenv()
@@ -185,6 +187,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Printer API Gateway", lifespan=lifespan)
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 def resource_path(relative_path):
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
@@ -242,6 +251,18 @@ async def post_imprimir(pedido: ImpressaoRequest, auth=Depends(verify_auth), bac
         background_tasks.add_task(printer_service.print_common, pedido.impressora, pedido.conteudo, pedido.num_pedido)
 
     return {"status": "Aceito", "pedido": pedido.num_pedido, "engine": tipo}
+
+@app.get("/impressoras")
+def listar_impressoras(x_api_key: str = Header(...)):
+    if x_api_key != API_KEY:
+        raise HTTPException(status_code=401)
+    return {"impressoras": printer_service.get_all_printers()}
+
+@app.get("/hostname")
+def get_hostname(x_api_key: str = Header(...)):
+    if x_api_key != API_KEY:
+        raise HTTPException(status_code=401)
+    return {"hostname": socket.gethostname()}
 
 if __name__ == "__main__":
     port = int(os.getenv("PORTA_API", 5000))
