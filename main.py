@@ -184,7 +184,13 @@ async def lifespan(app: FastAPI):
     task.cancel()
 
 app = FastAPI(title="Printer API Gateway", lifespan=lifespan)
-templates = Jinja2Templates(directory="templates")
+
+def resource_path(relative_path):
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
+
+templates = Jinja2Templates(directory=resource_path("templates"))
 
 # --- AUTH ---
 API_KEY = os.getenv("API_KEY", "minha_chave_segura_123")
