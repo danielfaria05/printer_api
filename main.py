@@ -127,8 +127,13 @@ class PrinterService:
         return data
 
     def detect_type(self, conteudo: str) -> str:
-        if conteudo.startswith("JVBERi"): return "pdf"
-        if conteudo.strip().startswith("^XA"): return "zebra"
+        # Remover prefixo data URI antes de detectar
+        c = conteudo.split(",", 1)[1] if "," in conteudo else conteudo
+        c = c.strip()
+        if c.startswith("JVBERi"):
+            return "pdf"
+        if c.strip().startswith("^XA"):
+            return "zebra"
         return "comum"
 
     async def print_common(self, printer: str, text: str, order_id: str):
@@ -157,39 +162,35 @@ class PrinterService:
             logger.info(f"Pedido {order_id}: ZPL OK")
         except Exception as e: logger.error(f"Pedido {order_id} ZPL Error: {e}")
 
-async def print_pdf(self, printer: str, temp_path: str, order_id: str):
-    try:
-        # Em produção (.exe): SumatraPDF.exe fica ao lado do printer_api.exe em dist\
-        # Em dev (python main.py): SumatraPDF.exe fica ao lado do main.py em dist\
-        if hasattr(sys, '_MEIPASS'):
-            # Rodando como .exe compilado pelo PyInstaller
-            base_dir = os.path.dirname(sys.executable)
-        else:
-            # Rodando como script Python em dev
-            base_dir = os.path.dirname(os.path.abspath(__file__))
+    async def print_pdf(self, printer: str, temp_path: str, order_id: str):
+        try:
+            if hasattr(sys, '_MEIPASS'):
+                base_dir = os.path.dirname(sys.executable)
+            else:
+                base_dir = os.path.dirname(os.path.abspath(__file__))
 
-        sumatra = os.path.join(base_dir, "SumatraPDF.exe")
+            sumatra = os.path.join(base_dir, "SumatraPDF.exe")
 
-        if not os.path.exists(sumatra):
-            raise FileNotFoundError(f"SumatraPDF.exe não encontrado em: {sumatra}")
+            if not os.path.exists(sumatra):
+                raise FileNotFoundError(f"SumatraPDF.exe não encontrado em: {sumatra}")
 
-        cmd = [
-            sumatra,
-            "-print-to", printer,
-            "-print-settings", "noscale",
-            "-silent",
-            temp_path
-        ]
-        result = subprocess.run(cmd, timeout=30, capture_output=True)
-        if result.returncode != 0:
-            logger.error(f"Pedido {order_id} SumatraPDF erro: {result.stderr.decode(errors='replace')}")
-        else:
-            logger.info(f"Pedido {order_id}: PDF OK via SumatraPDF")
-        await asyncio.sleep(5)
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-    except Exception as e:
-        logger.error(f"Pedido {order_id} PDF Error: {e}")
+            cmd = [
+                sumatra,
+                "-print-to", printer,
+                "-print-settings", "noscale",
+                "-silent",
+                temp_path
+            ]
+            result = subprocess.run(cmd, timeout=30, capture_output=True)
+            if result.returncode != 0:
+                logger.error(f"Pedido {order_id} SumatraPDF erro: {result.stderr.decode(errors='replace')}")
+            else:
+                logger.info(f"Pedido {order_id}: PDF OK via SumatraPDF")
+            await asyncio.sleep(5)
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except Exception as e:
+            logger.error(f"Pedido {order_id} PDF Error: {e}")
 
 # --- SINGLETONS ---
 ws_manager = ConnectionManager()
@@ -269,15 +270,22 @@ async def post_imprimir(pedido: ImpressaoRequest, auth=Depends(verify_auth), bac
         background_tasks.add_task(printer_service.print_zebra, pedido.impressora, pedido.conteudo, pedido.num_pedido)
     elif tipo == "pdf":
         try:
-            pdf_bytes = base64.b64decode(pedido.conteudo)
+            conteudo = pedido.conteudo
+            # Remover prefixo data URI se vier com ele
+            if "," in conteudo:
+                conteudo = conteudo.split(",", 1)[1]
+            # Limpar espaços e quebras de linha que invalidam o base64
+            conteudo = conteudo.strip().replace(" ", "+")
+            pdf_bytes = base64.b64decode(conteudo)
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                 tmp.write(pdf_bytes)
                 background_tasks.add_task(printer_service.print_pdf, pedido.impressora, tmp.name, pedido.num_pedido)
-        except: raise HTTPException(status_code=400, detail="Base64 de PDF inválido")
+        except Exception as ex:
+            raise HTTPException(status_code=400, detail=f"Base64 de PDF inválido: {ex}")
     else:
         background_tasks.add_task(printer_service.print_common, pedido.impressora, pedido.conteudo, pedido.num_pedido)
 
-    return {"status": "Aceito", "pedido": pedido.num_pedido, "engine": tipo}
+    return {"status": "ok", "pedido": pedido.num_pedido, "engine": tipo}
 
 @app.get("/impressoras")
 def listar_impressoras(x_api_key: str = Header(...)):
