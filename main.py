@@ -301,4 +301,9 @@ def get_hostname(x_api_key: str = Header(...)):
 
 if __name__ == "__main__":
     port = int(os.getenv("PORTA_API", 5000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=port,
+        log_config=None  # ← desativa o log config padrão do uvicorn
+    )
