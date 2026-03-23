@@ -15,3 +15,7 @@ test_quick.py
 .github/
 .gemini/
 gha-creds-*.json
+
+build/
+dist/
+*.spec
