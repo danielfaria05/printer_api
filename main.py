@@ -2,6 +2,7 @@ import os
 import logging
 import uuid
 import sys
+import subprocess
 import time
 import base64
 import tempfile
@@ -156,13 +157,39 @@ class PrinterService:
             logger.info(f"Pedido {order_id}: ZPL OK")
         except Exception as e: logger.error(f"Pedido {order_id} ZPL Error: {e}")
 
-    async def print_pdf(self, printer: str, temp_path: str, order_id: str):
-        try:
-            win32api.ShellExecute(0, "printto", temp_path, f'"{printer}"', ".", 0)
-            logger.info(f"Pedido {order_id}: PDF OK")
-            await asyncio.sleep(10)
-            if os.path.exists(temp_path): os.remove(temp_path)
-        except Exception as e: logger.error(f"Pedido {order_id} PDF Error: {e}")
+async def print_pdf(self, printer: str, temp_path: str, order_id: str):
+    try:
+        # Em produção (.exe): SumatraPDF.exe fica ao lado do printer_api.exe em dist\
+        # Em dev (python main.py): SumatraPDF.exe fica ao lado do main.py em dist\
+        if hasattr(sys, '_MEIPASS'):
+            # Rodando como .exe compilado pelo PyInstaller
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            # Rodando como script Python em dev
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+
+        sumatra = os.path.join(base_dir, "SumatraPDF.exe")
+
+        if not os.path.exists(sumatra):
+            raise FileNotFoundError(f"SumatraPDF.exe não encontrado em: {sumatra}")
+
+        cmd = [
+            sumatra,
+            "-print-to", printer,
+            "-print-settings", "noscale",
+            "-silent",
+            temp_path
+        ]
+        result = subprocess.run(cmd, timeout=30, capture_output=True)
+        if result.returncode != 0:
+            logger.error(f"Pedido {order_id} SumatraPDF erro: {result.stderr.decode(errors='replace')}")
+        else:
+            logger.info(f"Pedido {order_id}: PDF OK via SumatraPDF")
+        await asyncio.sleep(5)
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+    except Exception as e:
+        logger.error(f"Pedido {order_id} PDF Error: {e}")
 
 # --- SINGLETONS ---
 ws_manager = ConnectionManager()
